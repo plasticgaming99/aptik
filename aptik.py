@@ -7,9 +7,6 @@ aptik_user="plastek"
 import sys
 args = sys.argv
 import os
-import git
-import urllib.request
-import tqdm
 import shutil
 import subprocess
 import pyalpm
@@ -56,19 +53,47 @@ def makepackage(package, repourl, localdir, asdeps):
     #make package
     while True:
         #init local var
-        reqmakedepend=[]
+        reqmakedepend = []
+        reqpgpkeys = []
+
         #clone repo with gitpython
         print(f"{promptcolor.GREEN}==>{promptcolor.END} Setting Clone repo to aptik_user_home/.cache/aptik/repo")
         repo_dir = localdir + package
         if(os.path.exists(repo_dir) == True):
             shutil.rmtree(repo_dir)
         subcall(f"git clone {repourl}", localdir)
+        #using bash to check makedepends and checkdepends
         print(f"{promptcolor.GREEN}==>{promptcolor.END} Checking Makedepends...")
         makedependsspace = subprocess.run(["source PKGBUILD ; echo ${makedepends[*]}"], shell=True, stdout=subprocess.PIPE, text=True, check=True, cwd=repo_dir, executable="/usr/bin/bash").stdout
         makedepends = makedependsspace.split()
         checkdependsspace = subprocess.run(["source PKGBUILD ; echo ${checkdepends[*]}"], shell=True, stdout=subprocess.PIPE, text=True, check=True, cwd=repo_dir, executable="/usr/bin/bash").stdout
         checkdepends = checkdependsspace.split()
+        #merge depends
         makedepends = makedepends + checkdepends
+    
+        #check gpg key is avaliable
+        makedependsspace = subprocess.run(["source PKGBUILD ; echo ${vaildpgpkeys[*]}"], shell=True, stdout=subprocess.PIPE, text=True, check=True, cwd=repo_dir, executable="/usr/bin/bash").stdout
+        vaildpgpkeys = makedependsspace.split()
+        if len(vaildpgpkeys) > 0:
+            argsnow = 0
+            print(f"{promptcolor.GREEN}==>{promptcolor.END} Checking GPG keys is avaliable...")
+            while not (argsnow == len(vaildpgpkeys)):
+                if vaildpgpkeys[argsnow] == "":
+                    break
+                if subprocess.call(f"gpg -k | grep {vaildpgpkeys[argsnow]}", shell=True):
+                    pass
+                else:
+                    reqpgpkeys.append(vaildpgpkeys[argsnow])
+                argsnow += 1
+
+        if len(reqpgpkeys) > 0:
+            argsnow = 0
+            if yes_no_input(f"{promptcolor.GREEN}==>{promptcolor.END} PGP key {reqpgpkeys[argsnow]} needs to import. Continue? [Y/n]", "y"):
+                subprocess.call(f"sudo -u {aptik_user} gpg --recv-keys {reqpgpkeys[argsnow]}", shell=True)
+            else:
+                print(f"{promptcolor.GREEN}==>{promptcolor.END} Skipping...")
+            argsnow += 1
+
         #make makedepends
         if len(makedepends) > 0:
             #make makedepends
@@ -79,7 +104,7 @@ def makepackage(package, repourl, localdir, asdeps):
                 print(localdb.get_pkg(makedepends[argsnow]))
                 if localdb.get_pkg(makedepends[argsnow]) == None:
                     reqmakedepend.append(makedepends[argsnow])
-                argsnow = argsnow + 1
+                argsnow += 1
             #install makedepends
             argsnow = 0
             while not (argsnow == len(reqmakedepend)):
@@ -93,7 +118,8 @@ def makepackage(package, repourl, localdir, asdeps):
                 repo_url = f"https://gitlab.archlinux.org/archlinux/packaging/packages/" + package + ".git"
                 print(argsnow)
                 makepackage(reqmakedepend[argsnow], repo_url, localdir, True)
-                argsnow = argsnow + 1
+                argsnow += 1
+
         if asdeps == True:
             print(f"{promptcolor.GREEN}==>{promptcolor.END} Installing Makedepends...")
         subprocess.call('chown -R ' + aptik_user + ":" + aptik_user + " " + repo_dir, shell=True)
@@ -133,7 +159,7 @@ if not (len(args) == 1):
         argsonlyoptions=[]
         while not (argsnow == len(args)):
             argsonlyoptions.append(args[argsnow])
-            argsnow = argsnow + 1
+            argsnow += 1
 
         #check input. packages or options.
         argsnow = 2
@@ -142,7 +168,7 @@ if not (len(args) == 1):
                 argtypelist.append("1")
             else:
                 argtypelist.append("2")
-            argsnow = argsnow + 1
+            argsnow += 1
 
         #parse input. like options
         argsnow = 0
@@ -160,7 +186,7 @@ if not (len(args) == 1):
                     needed = True
             else:
                 packagestoins.append(argsonlyoptions[argsnow])
-            argsnow = argsnow + 1
+            argsnow += 1
 
         #yahhh package
         package = packagestoins[0]
@@ -175,6 +201,7 @@ if not (len(args) == 1):
             os.makedirs(pkgdir)
         print(f"{promptcolor.GREEN}==>{promptcolor.END} Installing...")
         subprocess.call('pacman -U ' + local_dir + package + '/*.tar.zst', cwd=pkgdir, shell=True)
+        quit()
     elif (args[1] == "help" or args[1] == "--help"):
         print (f"usage {args[0]}")
 else:
